@@ -56,9 +56,12 @@ public class AuthController {
 
 
         if (role == AccountRole.ADMIN && !safeEquals(body.inviteCode(), adminInviteCode)) {
+            System.out.println("test 1");
             return ResponseEntity.status(403).build();
+
         }
         if (role == AccountRole.AGENT && !safeEquals(body.inviteCode(), agentInviteCode)) {
+            System.out.println("test 2");
             return ResponseEntity.status(403).build();
         }
 
@@ -103,7 +106,7 @@ public class AuthController {
                 new UsernamePasswordAuthenticationToken(body.email(), body.password())
         );
 
-        String principalEmail = authentication.getName(); // authenticated email
+        String principalEmail = authentication.getName();
         UserAccount user = users.findByEmail(principalEmail).orElseThrow();
 
         String token = jwt.generate(user.getEmail(), user.getRole().name());

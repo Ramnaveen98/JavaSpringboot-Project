@@ -23,7 +23,11 @@ public class SecurityConfig {
         this.jwtAuthFilter = jwtAuthFilter;
     }
 
-    @Bean PasswordEncoder passwordEncoder() { return new BCryptPasswordEncoder(); }
+    @Bean PasswordEncoder passwordEncoder()
+    {
+        return new BCryptPasswordEncoder();
+    }
+
     @Bean AuthenticationManager authenticationManager(AuthenticationConfiguration c) throws Exception {
         return c.getAuthenticationManager();
     }
@@ -36,9 +40,9 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
 
                         .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
+
+
                         .requestMatchers("/", "/api/v1/health/**").permitAll()
-
-
                         .requestMatchers("/api/v1/auth/**").permitAll()
 
 
@@ -57,8 +61,8 @@ public class SecurityConfig {
 
                         .requestMatchers("/api/v1/requests/export.csv").hasRole("ADMIN")
                         .requestMatchers("/api/v1/agents/**").hasRole("ADMIN")
-                        .requestMatchers("/api/v1/requests/**").hasAnyRole("ADMIN","AGENT")
                         .requestMatchers("/api/v1/feedback/**").hasRole("ADMIN")
+                        .requestMatchers("/api/v1/requests/**").hasAnyRole("ADMIN", "AGENT")
 
                         .anyRequest().authenticated()
                 )

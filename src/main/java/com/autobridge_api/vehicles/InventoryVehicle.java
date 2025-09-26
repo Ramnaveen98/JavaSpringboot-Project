@@ -31,13 +31,13 @@ public class InventoryVehicle {
 
     // Basic attributes
     @Column(nullable = false)
-    private Integer year;            // e.g., 2022
+    private Integer year;            // Year
 
     @Column(nullable = false, length = 17, unique = true)
     private String vin;              // Vehicle Identification Number
 
     @Column(length = 32)
-    private String color;            // Exterior color
+    private String color;            //  color
 
     @Column(precision = 12, scale = 2)
     private BigDecimal price;        // Asking price
