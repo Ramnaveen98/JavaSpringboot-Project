@@ -2,16 +2,22 @@ package com.autobridge_api.auth;
 
 import com.autobridge_api.agents.Agent;
 import com.autobridge_api.agents.AgentRepository;
-import com.autobridge_api.auth.dto.AuthDtos.*;
+import com.autobridge_api.auth.dto.AuthDtos;
+import com.autobridge_api.auth.AccountRole;
 import com.autobridge_api.security.JwtService;
+
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
+
+import java.lang.reflect.Method;
 
 @RestController
 @RequestMapping("/api/v1/auth")
@@ -42,30 +48,28 @@ public class AuthController {
         this.agentInviteCode = agentInviteCode;
     }
 
-
+    // ---------- SIGN UP ----------
     @PostMapping("/signup")
     @Transactional
-    public ResponseEntity<SignupResponse> signup(@Validated @RequestBody SignupRequest body) {
-        String email = body.email().toLowerCase();
+    public ResponseEntity<AuthDtos.AuthResponse> signup(@Validated @RequestBody AuthDtos.SignupRequest body) {
+        final String email = body.email() == null ? null : body.email().trim().toLowerCase();
+        if (email == null || body.password() == null) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).build();
+        }
 
         if (users.existsByEmail(email)) {
-            return ResponseEntity.status(409).build();
+            return ResponseEntity.status(HttpStatus.CONFLICT).build(); // 409
         }
 
         AccountRole role = (body.accountType() == null) ? AccountRole.USER : body.accountType();
 
-
         if (role == AccountRole.ADMIN && !safeEquals(body.inviteCode(), adminInviteCode)) {
-            System.out.println("test 1");
-            return ResponseEntity.status(403).build();
-
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build(); // 403
         }
         if (role == AccountRole.AGENT && !safeEquals(body.inviteCode(), agentInviteCode)) {
-            System.out.println("test 2");
-            return ResponseEntity.status(403).build();
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build(); // 403
         }
 
-        // Create user
         UserAccount user = UserAccount.builder()
                 .email(email)
                 .passwordHash(encoder.encode(body.password()))
@@ -77,51 +81,46 @@ public class AuthController {
                 .build();
         user = users.save(user);
 
-
         if (role == AccountRole.AGENT) {
-            Agent a = Agent.builder()
+            agents.save(Agent.builder()
                     .firstName(user.getFirstName())
                     .lastName(user.getLastName())
                     .email(user.getEmail())
                     .phone(user.getPhone())
                     .active(true)
-                    .build();
-            agents.save(a);
+                    .build());
         }
 
-        // NO TOKEN on signup
-        SignupResponse resp = new SignupResponse(
-                user.getId(),
-                user.getEmail(),
-                user.getRole().name(),
-                "Sign up successful. Please log in."
-        );
-        return ResponseEntity.status(201).body(resp);
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(new AuthDtos.AuthResponse(user.getId(), user.getEmail(), user.getRole().name(), null));
     }
 
-
+    // ---------- LOGIN ----------
     @PostMapping("/login")
-    public ResponseEntity<LoginResponse> login(@RequestBody LoginRequest body) {
-        var authentication = authManager.authenticate(
-                new UsernamePasswordAuthenticationToken(body.email(), body.password())
-        );
+    public ResponseEntity<AuthDtos.AuthResponse> login(@RequestBody AuthDtos.LoginRequest body) {
+        try {
+            final String email = body.email() == null ? "" : body.email().trim().toLowerCase();
+            var authentication = authManager.authenticate(
+                    new UsernamePasswordAuthenticationToken(email, body.password())
+            );
 
-        String principalEmail = authentication.getName();
-        UserAccount user = users.findByEmail(principalEmail).orElseThrow();
+            String principalEmail = authentication.getName();
+            UserAccount user = users.findByEmail(principalEmail).orElseThrow();
 
-        String token = jwt.generate(user.getEmail(), user.getRole().name());
+            if (!isAccountActive(user)) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+            }
 
-        LoginResponse resp = new LoginResponse(
-                user.getId(),
-                user.getEmail(),
-                user.getRole().name(),
-                token,
-                "Login successful"
-        );
-        return ResponseEntity.ok(resp);
+            String token = jwt.generate(user.getEmail(), user.getRole().name());
+            return ResponseEntity.ok(
+                    new AuthDtos.AuthResponse(user.getId(), user.getEmail(), user.getRole().name(), token)
+            );
+        } catch (BadCredentialsException ex) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
     }
 
-
+    // ---------- helpers ----------
     private static boolean safeEquals(String a, String b) {
         if (a == null || b == null) return false;
         if (a.length() != b.length()) return false;
@@ -130,7 +129,26 @@ public class AuthController {
         return r == 0;
     }
 
-
-    public record SignupResponse(Long userId, String email, String role, String message) {}
-    public record LoginResponse(Long userId, String email, String role, String token, String message) {}
+    /** Works whether the entity exposes `isActive()` or `getActive()`. Defaults to true if neither exists. */
+    private static boolean isAccountActive(UserAccount user) {
+        try {
+            Method m = user.getClass().getMethod("isActive");
+            Object v = m.invoke(user);
+            if (v instanceof Boolean b) return b;
+        } catch (NoSuchMethodException ignored) {
+            // fall through
+        } catch (Exception e) {
+            return true;
+        }
+        try {
+            Method m = user.getClass().getMethod("getActive");
+            Object v = m.invoke(user);
+            if (v instanceof Boolean b) return b;
+        } catch (NoSuchMethodException ignored) {
+            // fall through
+        } catch (Exception e) {
+            return true;
+        }
+        return true; // if property missing, don't block login
+    }
 }

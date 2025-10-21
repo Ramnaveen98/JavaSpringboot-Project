@@ -58,4 +58,13 @@ public class Slot {
 
     @UpdateTimestamp
     private Instant updatedAt;
+
+
+    @PrePersist
+    void prePersist() {
+        if (this.type == null) {
+            this.type = SlotType.SERVICE; // safe default for auto-created service slots
+        }
+    }
+
 }

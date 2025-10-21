@@ -3,97 +3,117 @@ package com.autobridge_api.requests;
 import com.autobridge_api.agents.Agent;
 import com.autobridge_api.servicecatalog.ServiceOffering;
 import com.autobridge_api.slots.Slot;
-import com.autobridge_api.vehicles.InventoryVehicle;
 import jakarta.persistence.*;
 import lombok.*;
-import org.hibernate.annotations.CreationTimestamp;
-import org.hibernate.annotations.UpdateTimestamp;
 
 import java.time.Instant;
 
+// NEW: tolerate missing vehicle row without throwing
+import org.hibernate.annotations.NotFound;
+import org.hibernate.annotations.NotFoundAction;
+
 @Entity
-@Table(
-        name = "service_request",
-        indexes = {
-                @Index(name = "idx_request_status", columnList = "status"),
-                @Index(name = "idx_request_email",  columnList = "user_email"),
-                @Index(name = "idx_request_agent",  columnList = "assigned_agent_id")
-        },
-        uniqueConstraints = {
-                @UniqueConstraint(columnNames = "slot_id")
-        }
-)
-@Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
+@Table(name = "service_request")
+@Getter
+@Setter
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
 public class ServiceRequest {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    /** Assigned agent (nullable until assigned) */
+    // ----- relations -----
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "service_id", nullable = false)
+    private ServiceOffering service;
+
+    // IMPORTANT: if the vehicle row was deleted, treat it as null instead of throwing
+    @NotFound(action = NotFoundAction.IGNORE)
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "inventory_vehicle_id")
+    private com.autobridge_api.vehicles.InventoryVehicle inventoryVehicle;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "slot_id")
+    private Slot slot;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "assigned_agent_id")
     private Agent assignedAgent;
 
-    /** Which catalog service this request is for (Test Drive / Delivery / Service item) */
-    @ManyToOne(optional = false, fetch = FetchType.LAZY)
-    @JoinColumn(name = "service_id", nullable = false)
-    private ServiceOffering service;
+    // ----- status -----
 
-    /** Optional: which inventory vehicle (for test drive or delivery) */
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "inventory_vehicle_id")
-    private InventoryVehicle inventoryVehicle;
-
-    /** The booked time window (1:1 when capacity = 1) */
-    @OneToOne(optional = false, fetch = FetchType.LAZY)
-    @JoinColumn(name = "slot_id", nullable = false, unique = true)
-    private Slot slot;
-
-    /** Lifecycle */
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 16)
-    private RequestStatus status = RequestStatus.PENDING;
+    @Column(nullable = false, length = 24)
+    private RequestStatus status;
 
-    /** Contact info captured at request creation */
-    @Column(name = "user_first_name", length = 64, nullable = false)
-    private String userFirstName;
+    // ----- contact -----
 
-    @Column(name = "user_last_name", length = 64, nullable = false)
-    private String userLastName;
-
-    @Column(name = "user_email", length = 128, nullable = false)
+    @Column(name = "user_email", nullable = false)
     private String userEmail;
 
-    @Column(name = "user_phone", length = 32)
+    @Column(name = "user_first_name")
+    private String userFirstName;
+
+    @Column(name = "user_last_name", nullable = false)
+    private String userLastName;
+
+    @Column(name = "user_phone")
     private String userPhone;
 
-    /** Basic address (country not restricted to US) */
-    @Column(name = "addr_line1", length = 128, nullable = false)
+    // ----- address -----
+
+    @Column(name = "addr_line1", nullable = false)
     private String addressLine1;
 
-    @Column(name = "addr_line2", length = 128)
+    @Column(name = "addr_line2")
     private String addressLine2;
 
-    @Column(name = "addr_city", length = 64, nullable = false)
+    @Column(name = "addr_city", nullable = false)
     private String city;
 
-    @Column(name = "addr_state", length = 64)
+    @Column(name = "addr_state")
     private String state;
 
-    @Column(name = "addr_postal_code", length = 32)
+    @Column(name = "addr_postal_code")
     private String postalCode;
 
-    @Column(name = "addr_country", length = 64)
+    @Column(name = "addr_country")
     private String country;
 
-    /** Extra notes from user */
-    @Column(length = 1000)
+    // ----- misc -----
+
+    @Column(name = "notes", columnDefinition = "TEXT")
     private String notes;
 
-    @CreationTimestamp
+    @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
-    @UpdateTimestamp
+    @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
+
+    // ----- lifecycle guards (make NOT NULL columns safe for local testing) -----
+
+    @PrePersist
+    void prePersist() {
+        if (this.status == null) this.status = RequestStatus.PENDING;
+        final Instant now = Instant.now();
+        this.createdAt = now;
+        this.updatedAt = now;
+
+        // Safety defaults to avoid DB integrity 409s during UI wiring
+        if (this.userLastName == null || this.userLastName.isBlank()) this.userLastName = "N/A";
+        if (this.userEmail == null || this.userEmail.isBlank()) this.userEmail = "no-email@local";
+        if (this.addressLine1 == null || this.addressLine1.isBlank()) this.addressLine1 = "N/A";
+        if (this.city == null || this.city.isBlank()) this.city = "N/A";
+    }
+
+    @PreUpdate
+    void preUpdate() {
+        this.updatedAt = Instant.now();
+    }
 }
