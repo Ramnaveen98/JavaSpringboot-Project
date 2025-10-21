@@ -7,6 +7,7 @@ public class RequestDtos {
             Long serviceId,
             Long inventoryVehicleId,
             Long slotId,
+            String scheduledAt,
             String userFirstName,
             String userLastName,
             String userEmail,

@@ -16,6 +16,14 @@ public class VehicleCatalogSeeder {
             InventoryVehicleRepository invRepo
     ) {
         return args -> {
+            // ---- NEW: only seed when inventory is empty ----
+            long existing = invRepo.count();
+            if (existing > 0) {
+                // Inventory already has records (maybe 3 after you deleted 1) — don't reseed.
+                // This prevents the deleted demo item from coming back on server restart.
+                return;
+            }
+
             // --- Makes ---
             var toyota = ensureMake(makeRepo, "Toyota");
             var honda  = ensureMake(makeRepo, "Honda");

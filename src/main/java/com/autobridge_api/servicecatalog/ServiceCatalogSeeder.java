@@ -1,37 +1,35 @@
+// src/main/java/com/autobridge_api/servicecatalog/ServiceCatalogSeeder.java
 package com.autobridge_api.servicecatalog;
 
-import org.springframework.boot.CommandLineRunner;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
+import lombok.RequiredArgsConstructor;
+import org.springframework.boot.ApplicationArguments;
+import org.springframework.boot.ApplicationRunner;
+import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
 
-@Configuration
-public class ServiceCatalogSeeder {
+@Component
+@RequiredArgsConstructor
+public class ServiceCatalogSeeder implements ApplicationRunner {
 
-    private void ensure(ServiceOfferingRepository repo, String slug, String name,
-                        String desc, BigDecimal price, Integer minutes) {
-        repo.findBySlug(slug).orElseGet(() ->
-                repo.save(ServiceOffering.builder()
-                        .slug(slug)
-                        .name(name)
-                        .description(desc)
-                        .basePrice(price)
-                        .durationMinutes(minutes)
-                        .active(true)
-                        .build())
-        );
+    private final ServiceOfferingRepository repo;
+
+    @Override
+    public void run(ApplicationArguments args) {
+        seed("test-drive",   "Test Drive",        BigDecimal.ZERO, 60,  true);
+        seed("tire-rotation","Tire Rotation",     new BigDecimal("25.00"), 30, true);
+        seed("delivery",     "Vehicle Delivery",  BigDecimal.ZERO, 120, true);
+        seed("oil-change",   "Oil Change",        new BigDecimal("39.99"), 45, true);
     }
 
-    @Bean
-    CommandLineRunner seedServices(ServiceOfferingRepository repo) {
-        return args -> {
-            ensure(repo, "test-drive", "Test Drive",
-                    "On-site test drive with an agent", BigDecimal.ZERO, 60);
-            ensure(repo, "delivery", "Vehicle Delivery",
-                    "Deliver purchased vehicle to your address", BigDecimal.ZERO, 120);
-            ensure(repo, "oil-change", "Oil Change",
-                    "Standard oil and filter change", new BigDecimal("39.99"), 45);
-        };
+    private void seed(String slug, String name, BigDecimal price, Integer minutes, boolean active) {
+        if (repo.existsBySlug(slug)) return;
+        ServiceOffering s = new ServiceOffering();
+        s.setSlug(slug);
+        s.setName(name);
+        s.setBasePrice(price);
+        s.setDurationMinutes(minutes);
+        s.setActive(active);
+        repo.save(s);
     }
 }

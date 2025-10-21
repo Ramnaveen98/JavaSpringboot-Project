@@ -1,5 +1,7 @@
 package com.autobridge_api.vehicles;
-
 public enum InventoryStatus {
-    AVAILABLE, RESERVED, SOLD
+    AVAILABLE,
+    PENDING,
+    RESERVED,
+    SOLD
 }
