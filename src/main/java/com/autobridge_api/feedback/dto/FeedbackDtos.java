@@ -16,6 +16,9 @@ public final class FeedbackDtos {
             Long requestId,
             Integer rating,
             String comment,
-            String createdAtUtc
+            String createdAtUtc,
+            boolean acknowledged,
+            String acknowledgedBy,
+            String acknowledgedAt
     ) {}
 }

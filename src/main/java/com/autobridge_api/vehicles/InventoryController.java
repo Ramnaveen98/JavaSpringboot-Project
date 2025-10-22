@@ -1,15 +1,17 @@
 package com.autobridge_api.vehicles;
 
-import com.autobridge_api.vehicles.dto.VehiclesDtos.InventoryVehicleDto;
 import org.springframework.data.domain.*;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.http.ResponseEntity;
+import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.List;
 
 @RestController
-@RequestMapping("/api/v1/inventory")
+@RequestMapping("/api/v1/vehicles")
 public class InventoryController {
 
     private final InventoryVehicleRepository repo;
@@ -18,73 +20,131 @@ public class InventoryController {
         this.repo = repo;
     }
 
-    /** Paged inventory list with optional filters */
-    @GetMapping
-    public Page<InventoryVehicleDto> list(
-            @RequestParam(required = false) Long makeId,
-            @RequestParam(required = false) Long modelId,
-            @RequestParam(required = false) InventoryStatus status,
-            @RequestParam(required = false) BigDecimal minPrice,
-            @RequestParam(required = false) BigDecimal maxPrice,
-            @RequestParam(required = false) String q,
-            @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "12") int size
+    /** Public DTO (strings & numbers only; no nested objects). */
+    public record VehicleDto(
+            Long id,
+            String vin,
+            String title,
+            String brand,
+            String model,
+            String color,
+            Integer year,
+            BigDecimal price,
+            String status,
+            String imageUrl,
+            String description
+    ) {}
+
+    /** GET /api/v1/vehicles/public — searchable public catalog. */
+    @GetMapping("/public")
+    public Page<VehicleDto> searchPublic(
+            @RequestParam(value = "q", required = false) String q,
+            @RequestParam(value = "brand", required = false) String brand,
+            @RequestParam(value = "make", required = false) String makeAlias,   // alias for brand
+            @RequestParam(value = "model", required = false) String model,
+            @RequestParam(value = "status", required = false) String status,
+            @RequestParam(value = "minPrice", required = false) BigDecimal minPrice,
+            @RequestParam(value = "maxPrice", required = false) BigDecimal maxPrice,
+            @RequestParam(value = "year", required = false) Integer year,
+
+            @RequestParam(value = "page", defaultValue = "0") int page,
+            @RequestParam(value = "size", defaultValue = "20") int size,
+            @RequestParam(value = "sort", defaultValue = "createdAt,DESC") String sort
     ) {
-        Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
+        String brandParam = StringUtils.hasText(brand) ? brand : makeAlias;
 
         Specification<InventoryVehicle> spec = Specification.where(null);
 
-        if (makeId != null) {
-            spec = spec.and((root, cq, cb) -> cb.equal(root.get("make").get("id"), makeId));
+        if (StringUtils.hasText(q)) {
+            String like = "%" + q.trim().toLowerCase() + "%";
+            spec = spec.and((root, cq, cb) -> cb.or(
+                    cb.like(cb.lower(root.get("title")), like),
+                    cb.like(cb.lower(root.get("brand")), like),
+                    cb.like(cb.lower(root.get("model")), like),
+                    cb.like(cb.lower(root.get("color")), like),
+                    cb.like(cb.lower(root.get("description")), like)
+            ));
         }
-        if (modelId != null) {
-            spec = spec.and((root, cq, cb) -> cb.equal(root.get("model").get("id"), modelId));
+
+        if (StringUtils.hasText(brandParam)) {
+            String like = "%" + brandParam.trim().toLowerCase() + "%";
+            spec = spec.and((root, cq, cb) -> cb.like(cb.lower(root.get("brand")), like));
         }
-        if (status != null) {
-            spec = spec.and((root, cq, cb) -> cb.equal(root.get("status"), status));
+
+        if (StringUtils.hasText(model)) {
+            String like = "%" + model.trim().toLowerCase() + "%";
+            spec = spec.and((root, cq, cb) -> cb.like(cb.lower(root.get("model")), like));
         }
+
+        if (StringUtils.hasText(status)) {
+            try {
+                InventoryStatus st = InventoryStatus.valueOf(status.trim().toUpperCase());
+                spec = spec.and((root, cq, cb) -> cb.equal(root.get("status"), st));
+            } catch (IllegalArgumentException ignored) {
+                // unknown status -> ignore filter
+            }
+        }
+
+        if (year != null) {
+            spec = spec.and((root, cq, cb) -> cb.equal(root.get("year"), year));
+        }
+
         if (minPrice != null) {
             spec = spec.and((root, cq, cb) -> cb.greaterThanOrEqualTo(root.get("price"), minPrice));
         }
         if (maxPrice != null) {
             spec = spec.and((root, cq, cb) -> cb.lessThanOrEqualTo(root.get("price"), maxPrice));
         }
-        if (q != null && !q.isBlank()) {
-            String like = "%" + q.trim().toLowerCase() + "%";
-            spec = spec.and((root, cq, cb) -> cb.or(
-                    cb.like(cb.lower(root.get("vin")), like),
-                    cb.like(cb.lower(root.get("color")), like),
-                    cb.like(cb.lower(root.get("description")), like),
-                    cb.like(cb.lower(root.get("model").get("name")), like),
-                    cb.like(cb.lower(root.get("make").get("name")), like)
-            ));
-        }
 
-        return repo.findAll(spec, pageable).map(this::toDto);
+        Sort sortObj = parseSort(sort);
+        Pageable pageable = PageRequest.of(Math.max(0, page), Math.min(Math.max(size, 1), 100), sortObj);
+
+        Page<InventoryVehicle> pg = repo.findAll(spec, pageable);
+        return pg.map(this::toDto);
     }
 
-    /** Single vehicle detail */
-    @GetMapping("/{id}")
-    public ResponseEntity<InventoryVehicleDto> get(@PathVariable Long id) {
+    /** GET /api/v1/vehicles/public/{id} — single vehicle for details page. */
+    @GetMapping("/public/{id}")
+    public ResponseEntity<VehicleDto> getOne(@PathVariable Long id) {
         return repo.findById(id)
                 .map(v -> ResponseEntity.ok(toDto(v)))
-                .orElse(ResponseEntity.notFound().build());
+                .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
-    private InventoryVehicleDto toDto(InventoryVehicle v) {
-        return new InventoryVehicleDto(
+    /* ===================== helpers ===================== */
+
+    private VehicleDto toDto(InventoryVehicle v) {
+        return new VehicleDto(
                 v.getId(),
-                v.getMake().getId(),
-                v.getMake().getName(),
-                v.getModel().getId(),
-                v.getModel().getName(),
-                v.getYear(),
                 v.getVin(),
+                v.getTitle(),
+                v.getBrand(),       // alias for "make"
+                v.getModel(),
                 v.getColor(),
+                v.getYear(),
                 v.getPrice(),
-                v.getStatus(),
+                v.getStatus() != null ? v.getStatus().name() : null,
                 v.getImageUrl(),
                 v.getDescription()
         );
+    }
+
+    private Sort parseSort(String s) {
+        if (!StringUtils.hasText(s)) return Sort.by(Sort.Order.desc("createdAt"));
+        try {
+            // Format: "field,ASC|DESC;field2,ASC|DESC"
+            String[] parts = s.split("[;]");
+            List<Sort.Order> orders = new ArrayList<>();
+            for (String p : parts) {
+                String[] duo = p.trim().split(",");
+                String field = duo[0].trim();
+                Sort.Direction dir = (duo.length > 1 && "ASC".equalsIgnoreCase(duo[1].trim()))
+                        ? Sort.Direction.ASC : Sort.Direction.DESC;
+                orders.add(new Sort.Order(dir, field));
+            }
+            return orders.isEmpty() ? Sort.by(Sort.Order.desc("createdAt")) : Sort.by(orders);
+        } catch (Exception e) {
+            return Sort.by(Sort.Order.desc("createdAt"));
+        }
     }
 }

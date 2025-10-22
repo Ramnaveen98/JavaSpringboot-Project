@@ -1,0 +1,2 @@
+-- Intentionally empty: marks the current database schema as the baseline.
+-- Future schema changes should be added as V2__*.sql, V3__*.sql, etc.
