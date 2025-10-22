@@ -23,7 +23,7 @@ public class Slot {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-
+//I am updating small line
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 16)
     private SlotType type;
