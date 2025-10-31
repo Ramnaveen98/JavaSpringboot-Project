@@ -1,3 +1,5 @@
+
+/*
 package com.autobridge_api.vehicles;
 
 import org.springframework.transaction.annotation.Transactional;
@@ -7,31 +9,33 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/api/v1")
-public class VehicleListController {
+public class VehicleListControllerBkp {
 
-    private final VehicleListRepository repo;
+    private final VehicleListRepositoryBkp repo;
 
-    public VehicleListController(VehicleListRepository repo) {
+    public VehicleListControllerBkp(VehicleListRepositoryBkp repo) {
         this.repo = repo;
     }
 
     public record VehicleDto(Long id, String title, String brand, Double price, String imageUrl) {
-        static VehicleDto from(VehicleListRepository.VehicleRow r) {
+        static VehicleDto from(VehicleListRepositoryBkp.VehicleRow r) {
             return new VehicleDto(r.getId(), r.getTitle(), r.getBrand(), r.getPrice(), r.getImageUrl());
         }
     }
 
-    /** Authenticated list (keeps your existing security rules) */
+    // Authenticated list (keeps your existing security rules)
     @GetMapping("/vehicles")
     @Transactional(readOnly = true)
     public List<VehicleDto> listProtected() {
         return repo.listAllRows().stream().map(VehicleDto::from).toList();
     }
 
-    /** Public list (no token) — handy for the public Cars page */
+    //Public list (no token) — handy for the public Cars page
     @GetMapping("/public/vehicles")
     @Transactional(readOnly = true)
     public List<VehicleDto> listPublic() {
         return repo.listAllRows().stream().map(VehicleDto::from).toList();
     }
 }
+
+*/

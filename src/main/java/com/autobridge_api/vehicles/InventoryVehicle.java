@@ -1,5 +1,7 @@
 package com.autobridge_api.vehicles;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.persistence.*;
 import java.lang.reflect.Method;
 import java.math.BigDecimal;
@@ -44,9 +46,9 @@ public class InventoryVehicle {
     @Column(length = 32)
     private InventoryStatus status;
 
-    /** Absolute or relative URL (e.g., "/uploads/vehicles/1/x.jpg" or https://...) */
-    @Column(length = 2048)
-    private String imageUrl;
+    /** DB column is snake_case, but JSON should expose camelCase imageUrl */
+    @Column(name = "image_url", length = 2048)
+    private String image_url;
 
     /** Marketing / details text (nullable). */
     @Lob
@@ -98,8 +100,17 @@ public class InventoryVehicle {
     public InventoryStatus getStatus() { return status; }
     public void setStatus(InventoryStatus status) { this.status = status; }
 
-    public String getImageUrl() { return imageUrl; }
-    public void setImageUrl(String imageUrl) { this.imageUrl = imageUrl; }
+    /** Hide snake_case from JSON to avoid confusion */
+    @JsonIgnore
+    public String getImage_url() { return image_url; }
+    public void setImage_url(String image_url) { this.image_url = image_url; }
+
+    /** Expose canonical camelCase in JSON */
+    @JsonProperty("imageUrl")
+    public String getImageUrl() { return image_url; }
+
+    @JsonProperty("imageUrl")
+    public void setImageUrl(String imageUrl) { this.image_url = imageUrl; }
 
     public String getDescription() { return description; }
     public void setDescription(String description) { this.description = description; }
@@ -108,19 +119,7 @@ public class InventoryVehicle {
     public Instant getUpdatedAt() { return updatedAt; }
 
     /* ================================================================================
-       Builder compatible with seeders and legacy code:
-         InventoryVehicle.builder()
-           .vin("...")
-           .make(VehicleMake or String)   // -> brand
-           .model(VehicleModel or String) // -> model
-           .color("Blue" or enum)
-           .year(2025)
-           .price(new BigDecimal("25990.00")) or .price(25990)
-           .status(InventoryStatus or "AVAILABLE")
-           .imageUrl("...")
-           .description("…")
-           .title("Toyota Prius") // optional; else we compose from brand+model
-           .build();
+       Builder compatible with seeders and legacy code
        ================================================================================ */
     public static Builder builder() { return new Builder(); }
 
@@ -133,7 +132,7 @@ public class InventoryVehicle {
         private Integer year;
         private BigDecimal price;
         private InventoryStatus status;
-        private String imageUrl;
+        private String image_url;
         private String description;
 
         private Builder() {}
@@ -142,11 +141,9 @@ public class InventoryVehicle {
         public Builder title(String title) { this.title = title; return this; }
         public Builder brand(String brand) { this.brand = brand; return this; }
 
-        /** Accept whatever VehicleMake is (enum/class). Prefer getName()/getDisplayName(), else toString(). */
         public Builder make(com.autobridge_api.vehicles.VehicleMake make) {
             this.brand = toNiceString(make); return this;
         }
-        /** Also accept plain string for make->brand. */
         public Builder make(String make) { this.brand = make; return this; }
 
         public Builder model(String model) { this.model = model; return this; }
@@ -159,9 +156,7 @@ public class InventoryVehicle {
 
         public Builder year(Integer year) { this.year = year; return this; }
 
-        /** BigDecimal price (preferred). */
         public Builder price(BigDecimal price) { this.price = price; return this; }
-        /** Overload: integer → BigDecimal. */
         public Builder price(Integer price) {
             this.price = (price == null) ? null : new BigDecimal(price.toString());
             return this;
@@ -175,14 +170,13 @@ public class InventoryVehicle {
             return this;
         }
 
-        public Builder imageUrl(String imageUrl) { this.imageUrl = imageUrl; return this; }
+        public Builder image_url(String image_url) { this.image_url = image_url; return this; }
         public Builder description(String description) { this.description = description; return this; }
 
         public InventoryVehicle build() {
             InventoryVehicle v = new InventoryVehicle();
             v.setVin(this.vin);
 
-            // Compose title if missing
             String finalTitle = this.title;
             if (isBlank(finalTitle)) {
                 if (!isBlank(this.brand) && !isBlank(this.model)) finalTitle = this.brand + " " + this.model;
@@ -197,14 +191,13 @@ public class InventoryVehicle {
             v.setYear(this.year);
             v.setPrice(this.price);
             v.setStatus(this.status);
-            v.setImageUrl(this.imageUrl);
+            v.setImage_url(this.image_url);
             v.setDescription(this.description);
             return v;
         }
 
         private static boolean isBlank(String s){ return s==null || s.isBlank(); }
 
-        /** Try getName()/getDisplayName() via reflection; else use toString(). */
         private static String toNiceString(Object obj) {
             if (obj == null) return null;
             try {
@@ -217,7 +210,7 @@ public class InventoryVehicle {
                 Object r = m.invoke(obj);
                 if (r != null) return String.valueOf(r);
             } catch (Throwable ignored) {}
-            return String.valueOf(obj); // enum.name() or class toString()
+            return String.valueOf(obj);
         }
     }
 }

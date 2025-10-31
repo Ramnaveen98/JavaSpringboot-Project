@@ -18,6 +18,9 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
+
+import org.springframework.http.HttpMethod;
+
 import java.util.List;
 
 @Configuration
@@ -44,10 +47,12 @@ public class SecurityConfig {
                         .accessDeniedHandler((req, res, e) -> res.setStatus(HttpStatus.FORBIDDEN.value())) // 403
                 )
 
+
                 // --- Authorization: specific → general ---
                 .authorizeHttpRequests(auth -> auth
                         // Preflight
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/uploads/**").permitAll()
 
                         // Swagger / API docs
                         .requestMatchers(
@@ -69,36 +74,40 @@ public class SecurityConfig {
                         // Static uploads (images saved by admin)
                         .requestMatchers(HttpMethod.GET, "/uploads/**").permitAll()
 
-                        // Public catalog
+                        // Public services
                         .requestMatchers(HttpMethod.GET,
                                 "/api/v1/services/public",
                                 "/api/v1/services/public/**"
                         ).permitAll()
 
-                        // Public vehicles list
+                        // Public vehicles — support current path and the future alias
                         .requestMatchers(HttpMethod.GET,
                                 "/api/v1/vehicles/public",
-                                "/api/v1/vehicles/public/**"
+                                "/api/v1/vehicles/public/**",
+                                "/api/v1/public/vehicles",
+                                "/api/v1/public/vehicles/**"
                         ).permitAll()
 
-                        // New public endpoints under /api/v1/public (incl. image proxy)
-                        .requestMatchers("/api/v1/public/image-proxy").permitAll()
+                        // Other public helpers (e.g., image proxy)
                         .requestMatchers("/api/v1/public/**").permitAll()
 
+                        // Password reset flow
+                        .requestMatchers(
+                                "/api/v1/auth/forgot-password",
+                                "/api/v1/auth/verify-otp",
+                                "/api/v1/auth/reset-password"
+                        ).permitAll()
+
                         // ---------- Agent requests (dashboard + actions) ----------
-                        // IMPORTANT: allow BOTH /agent/requests and /agent/requests/mine
                         .requestMatchers(HttpMethod.GET,
                                 "/api/v1/agent/requests",
                                 "/api/v1/agent/requests/mine"
                         ).hasAnyRole("AGENT","ADMIN")
-                        .requestMatchers(HttpMethod.POST,
-                                "/api/v1/agent/requests/*/start").hasRole("AGENT")
-                        .requestMatchers(HttpMethod.POST,
-                                "/api/v1/agent/requests/*/complete").hasRole("AGENT")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/agent/requests/*/start").hasRole("AGENT")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/agent/requests/*/complete").hasRole("AGENT")
 
                         // ---------- Requests lifecycle (user) ----------
                         .requestMatchers(HttpMethod.POST, "/api/v1/requests").hasAnyRole("USER","ADMIN")
-                        // Let AGENT hit this too so the User dashboard doesn't 403 when an agent opens it.
                         .requestMatchers(HttpMethod.GET, "/api/v1/requests/mine").hasAnyRole("USER","ADMIN","AGENT")
                         .requestMatchers(HttpMethod.GET, "/api/v1/requests/*").authenticated()
 
@@ -130,10 +139,6 @@ public class SecurityConfig {
                                 "/api/v1/admin/requests/*/complete"
                         ).hasAnyRole("ADMIN","AGENT")
 
-                      //  .requestMatchers("/api/v1/auth/password/forgot", "/api/v1/auth/password/verify", "/api/v1/auth/password/reset")
-                      //  .permitAll()
-
-
                         // Cancel allowed for admin/agent/user
                         .requestMatchers(HttpMethod.POST,
                                 "/api/v1/requests/*/cancel",
@@ -160,7 +165,9 @@ public class SecurityConfig {
     }
 
     @Bean
-    public PasswordEncoder passwordEncoder() { return new BCryptPasswordEncoder(); }
+    public PasswordEncoder passwordEncoder() {
+        return new BCryptPasswordEncoder();
+    }
 
     @Bean
     public AuthenticationManager authenticationManager(AuthenticationConfiguration cfg) throws Exception {

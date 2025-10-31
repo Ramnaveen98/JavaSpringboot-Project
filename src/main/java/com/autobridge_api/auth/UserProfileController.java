@@ -2,6 +2,7 @@ package com.autobridge_api.auth;
 
 import com.autobridge_api.security.JwtService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -15,6 +16,13 @@ public class UserProfileController {
 
     private final UserAccountRepository users;
     private final JwtService jwtService; // you already use this elsewhere
+
+    @Autowired
+    public UserProfileController(JwtService jwtService, UserAccountRepository users) {
+        this.jwtService = jwtService;
+        this.users = users;
+    }
+
 
     // Only the fields that exist on UserAccount (no address fields)
     public record ProfileDto(

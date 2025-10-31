@@ -86,7 +86,7 @@ public class VehicleCatalogSeeder {
                         .color(color)
                         .price(price)
                         .status(status)
-                        .imageUrl(imageUrl)
+                        .image_url(imageUrl)
                         .description(description)
                         .build()
                 )

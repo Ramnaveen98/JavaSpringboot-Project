@@ -1,8 +1,12 @@
 package com.autobridge_api.vehicles;
 
-import org.springframework.data.domain.*;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.http.ResponseEntity;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 
@@ -12,6 +16,7 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/api/v1/vehicles")
+@Transactional(readOnly = true)
 public class InventoryController {
 
     private final InventoryVehicleRepository repo;
@@ -20,7 +25,7 @@ public class InventoryController {
         this.repo = repo;
     }
 
-    /** Public DTO (strings & numbers only; no nested objects). */
+    /** Admin/Private DTO (flat fields only). */
     public record VehicleDto(
             Long id,
             String vin,
@@ -35,9 +40,9 @@ public class InventoryController {
             String description
     ) {}
 
-    /** GET /api/v1/vehicles/public — searchable public catalog. */
-    @GetMapping("/public")
-    public Page<VehicleDto> searchPublic(
+    /** GET /api/v1/vehicles — admin/private searchable listing (no /public here). */
+    @GetMapping
+    public Page<VehicleDto> search(
             @RequestParam(value = "q", required = false) String q,
             @RequestParam(value = "brand", required = false) String brand,
             @RequestParam(value = "make", required = false) String makeAlias,   // alias for brand
@@ -103,8 +108,8 @@ public class InventoryController {
         return pg.map(this::toDto);
     }
 
-    /** GET /api/v1/vehicles/public/{id} — single vehicle for details page. */
-    @GetMapping("/public/{id}")
+    /** GET /api/v1/vehicles/{id} — admin/private details (no /public here). */
+    @GetMapping("/{id}")
     public ResponseEntity<VehicleDto> getOne(@PathVariable Long id) {
         return repo.findById(id)
                 .map(v -> ResponseEntity.ok(toDto(v)))
@@ -124,7 +129,7 @@ public class InventoryController {
                 v.getYear(),
                 v.getPrice(),
                 v.getStatus() != null ? v.getStatus().name() : null,
-                v.getImageUrl(),
+                v.getImage_url(),
                 v.getDescription()
         );
     }

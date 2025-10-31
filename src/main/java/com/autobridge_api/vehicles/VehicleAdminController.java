@@ -7,6 +7,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.data.domain.Sort;
 
 import java.math.BigDecimal;
 import java.net.URI;
@@ -22,15 +23,16 @@ public class VehicleAdminController {
             String vin,
             String title,
             String brand,
+            String model,       // ← now supported
+            String color,       // ← now supported
             Integer year,
             BigDecimal price,
-            String status,      // parsed to enum
+            String status,
             String imageUrl,
-            String description, // <— NEW
+            String description,
             // legacy aliases the UI may send
             String name,
-            String make,
-            String model
+            String make
     ) {}
 
     private final InventoryVehicleRepository repo;
@@ -41,12 +43,16 @@ public class VehicleAdminController {
         this.storage = storage;
     }
 
-    /* -------- CRUD -------- */
+    /* ---------- CRUD ---------- */
 
     @GetMapping
     @Transactional(readOnly = true)
-    public List<InventoryVehicle> list() {
-        return repo.findAll();
+    public List<InventoryVehicle> list(
+            @RequestParam(value = "sort", defaultValue = "createdAt,DESC") String sort) {
+        Sort s = "id,ASC".equalsIgnoreCase(sort)
+                ? Sort.by("id").ascending()
+                : Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id"));
+        return repo.findAll(s);
     }
 
     @PostMapping
@@ -55,11 +61,13 @@ public class VehicleAdminController {
         v.setVin(blankToNull(dto.vin()));
         v.setTitle(nn(dto.title(), dto.name()));
         v.setBrand(nn(dto.brand(), dto.make()));
+        v.setModel(blankToNull(dto.model()));
+        v.setColor(blankToNull(dto.color()));                   // ← save color
         v.setYear(dto.year());
         v.setPrice(normPrice(dto.price()));
         v.setStatus(parseStatus(dto.status()));
-        if (notBlank(dto.imageUrl())) v.setImageUrl(dto.imageUrl().trim());
-        if (dto.description() != null) v.setDescription(dto.description());
+        v.setDescription(dto.description());
+        if (notBlank(dto.imageUrl())) v.setImage_url(dto.imageUrl().trim());
         validate(v);
         var saved = repo.save(v);
         return ResponseEntity.created(URI.create("/api/v1/admin/vehicles/" + saved.getId())).body(saved);
@@ -68,13 +76,15 @@ public class VehicleAdminController {
     @PutMapping("/{id}")
     public InventoryVehicle update(@PathVariable Long id, @RequestBody UpsertDto dto) {
         var v = repo.findById(id).orElseThrow(() -> new IllegalArgumentException("Vehicle not found"));
-        if (dto.vin() != null) v.setVin(blankToNull(dto.vin()));
-        if (notBlank(dto.title()) || notBlank(dto.name())) v.setTitle(nn(dto.title(), dto.name()));
-        if (notBlank(dto.brand()) || notBlank(dto.make())) v.setBrand(nn(dto.brand(), dto.make()));
-        if (dto.year() != null) v.setYear(dto.year());
+        if (dto.vin()   != null) v.setVin(blankToNull(dto.vin()));
+        if (notBlank(dto.title()) || notBlank(dto.name()))  v.setTitle(nn(dto.title(), dto.name()));
+        if (notBlank(dto.brand()) || notBlank(dto.make()))  v.setBrand(nn(dto.brand(), dto.make()));
+        if (dto.model() != null) v.setModel(blankToNull(dto.model()));
+        if (dto.color() != null) v.setColor(blankToNull(dto.color()));      // ← update color
+        if (dto.year()  != null) v.setYear(dto.year());
         if (dto.price() != null) v.setPrice(normPrice(dto.price()));
-        if (dto.status() != null) v.setStatus(parseStatus(dto.status()));
-        if (dto.imageUrl() != null) v.setImageUrl(dto.imageUrl());
+        if (dto.status()!= null) v.setStatus(parseStatus(dto.status()));
+        if (dto.imageUrl() != null) v.setImage_url(dto.imageUrl().trim());
         if (dto.description() != null) v.setDescription(dto.description());
         validate(v);
         return repo.save(v);
@@ -88,29 +98,32 @@ public class VehicleAdminController {
         return ResponseEntity.noContent().build();
     }
 
-    /* -------- image by URL -------- */
+    /* ---------- image by URL ---------- */
 
     public record ImageUrlDto(String imageUrl) {}
 
     @PutMapping("/{id}/image")
     public InventoryVehicle setImageUrl(@PathVariable Long id, @RequestBody ImageUrlDto dto) {
         var v = repo.findById(id).orElseThrow(() -> new IllegalArgumentException("Vehicle not found"));
-        v.setImageUrl(dto.imageUrl() == null ? "" : dto.imageUrl().trim());
+        String url = (dto.imageUrl() == null) ? "" : dto.imageUrl().trim();
+        v.setImage_url(url);
         return repo.save(v);
     }
 
-    /* -------- image upload (multipart) -------- */
+    /* ---------- image upload (multipart) ---------- */
 
     @PostMapping(path = "/{id}/image-upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public InventoryVehicle uploadImage(@PathVariable Long id, @RequestParam("file") MultipartFile file) {
         if (file == null || file.isEmpty()) throw new IllegalArgumentException("No file uploaded");
         var v = repo.findById(id).orElseThrow(() -> new IllegalArgumentException("Vehicle not found"));
         String publicUrl = storage.saveVehicleImage(id, file);
-        v.setImageUrl(publicUrl);
-        return repo.save(v);
+        if (StringUtils.hasText(publicUrl)) {
+            v.setImage_url(publicUrl.trim());
+        }
+        return repo.save(v); // persist image_url immediately
     }
 
-    /* -------- helpers -------- */
+    /* ---------- helpers ---------- */
 
     private static String nn(String... options) {
         for (String s : options) if (notBlank(s)) return s.trim();

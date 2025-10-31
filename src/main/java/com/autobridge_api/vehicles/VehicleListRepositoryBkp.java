@@ -1,3 +1,5 @@
+
+/*
 package com.autobridge_api.vehicles;
 
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -9,15 +11,15 @@ import java.sql.SQLException;
 import java.util.List;
 
 @Repository
-public class VehicleListRepository {
+public class VehicleListRepositoryBkp {
 
     private final JdbcTemplate jdbc;
 
-    public VehicleListRepository(JdbcTemplate jdbc) {
+    public VehicleListRepositoryBkp(JdbcTemplate jdbc) {
         this.jdbc = jdbc;
     }
 
-    /** Row projection for the list API */
+    // Row projection for the list API
     public static final class VehicleRow {
         private final Long id;
         private final String title;
@@ -64,10 +66,13 @@ public class VehicleListRepository {
         JOIN vehicle_model md ON md.id = iv.model_id
         """;
 
-    /** List all vehicles (optionally only AVAILABLE – uncomment WHERE if you want the filter) */
+    // List all vehicles (optionally only AVAILABLE – uncomment WHERE if you want the filter)
     public List<VehicleRow> listAllRows() {
         // If you want to filter: BASE_SQL + " WHERE iv.status = 'AVAILABLE' ORDER BY iv.id"
         String sql = BASE_SQL + " ORDER BY iv.id";
         return jdbc.query(sql, ROW_MAPPER);
     }
 }
+
+
+ */
