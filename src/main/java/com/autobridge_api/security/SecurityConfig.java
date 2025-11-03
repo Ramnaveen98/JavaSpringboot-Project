@@ -18,9 +18,6 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
-
-import org.springframework.http.HttpMethod;
-
 import java.util.List;
 
 @Configuration
@@ -47,12 +44,10 @@ public class SecurityConfig {
                         .accessDeniedHandler((req, res, e) -> res.setStatus(HttpStatus.FORBIDDEN.value())) // 403
                 )
 
-
                 // --- Authorization: specific → general ---
                 .authorizeHttpRequests(auth -> auth
                         // Preflight
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/uploads/**").permitAll()
 
                         // Swagger / API docs
                         .requestMatchers(
@@ -61,15 +56,21 @@ public class SecurityConfig {
                                 "/swagger-ui.html"
                         ).permitAll()
 
-                        // Root/health/error
+                        // Root/health/error/ping
                         .requestMatchers(
                                 "/",
                                 "/error",
+                                "/api/v1/ping",
                                 "/api/v1/health/**"
                         ).permitAll()
 
-                        // Auth (signup/login)
-                        .requestMatchers("/api/v1/auth/**").permitAll()
+                        // Auth (signup/login + password reset flow)
+                        .requestMatchers(
+                                "/api/v1/auth/**",
+                                "/api/v1/auth/forgot-password",
+                                "/api/v1/auth/verify-otp",
+                                "/api/v1/auth/reset-password"
+                        ).permitAll()
 
                         // Static uploads (images saved by admin)
                         .requestMatchers(HttpMethod.GET, "/uploads/**").permitAll()
@@ -91,13 +92,6 @@ public class SecurityConfig {
                         // Other public helpers (e.g., image proxy)
                         .requestMatchers("/api/v1/public/**").permitAll()
 
-                        // Password reset flow
-                        .requestMatchers(
-                                "/api/v1/auth/forgot-password",
-                                "/api/v1/auth/verify-otp",
-                                "/api/v1/auth/reset-password"
-                        ).permitAll()
-
                         // ---------- Agent requests (dashboard + actions) ----------
                         .requestMatchers(HttpMethod.GET,
                                 "/api/v1/agent/requests",
@@ -108,8 +102,8 @@ public class SecurityConfig {
 
                         // ---------- Requests lifecycle (user) ----------
                         .requestMatchers(HttpMethod.POST, "/api/v1/requests").hasAnyRole("USER","ADMIN")
-                        .requestMatchers(HttpMethod.GET, "/api/v1/requests/mine").hasAnyRole("USER","ADMIN","AGENT")
-                        .requestMatchers(HttpMethod.GET, "/api/v1/requests/*").authenticated()
+                        .requestMatchers(HttpMethod.GET,  "/api/v1/requests/mine").hasAnyRole("USER","ADMIN","AGENT")
+                        .requestMatchers(HttpMethod.GET,  "/api/v1/requests/*").authenticated()
 
                         // Feedback
                         .requestMatchers(HttpMethod.POST,  "/api/v1/requests/*/feedback").hasRole("USER")
@@ -174,18 +168,35 @@ public class SecurityConfig {
         return cfg.getAuthenticationManager();
     }
 
+    /**
+     * CORS config used by Spring Security (and MVC via CorsFilter in CorsConfig).
+     * - Allows exact local dev origins (5173, 5174, etc.)
+     * - Also allows any localhost/127.0.0.1 port via allowedOriginPatterns (dev convenience)
+     * - Credentials enabled; common headers; exposes Content-Disposition for CSV exports
+     */
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration cfg = new CorsConfiguration();
+
+        // Exact origins for dev (credentials require exact match)
         cfg.setAllowedOrigins(List.of(
                 "http://localhost:5173",
                 "http://127.0.0.1:5173",
+                "http://localhost:5174",
+                "http://127.0.0.1:5174",
                 "http://localhost:3000",
                 "http://localhost:4200"
         ));
+
+        // Wildcard patterns (dev convenience). Remove/lock down in prod.
+        cfg.setAllowedOriginPatterns(List.of(
+                "http://localhost:*",
+                "http://127.0.0.1:*"
+        ));
+
         cfg.setAllowedMethods(List.of("GET","POST","PUT","PATCH","DELETE","OPTIONS"));
         cfg.setAllowedHeaders(List.of("Authorization","Content-Type","Accept","Origin","X-Requested-With"));
-        cfg.setExposedHeaders(List.of("Authorization"));
+        cfg.setExposedHeaders(List.of("Authorization","Content-Disposition"));
         cfg.setAllowCredentials(true);
         cfg.setMaxAge(3600L);
 
