@@ -18,11 +18,11 @@ WORKDIR /app
 COPY --from=build /workspace/target/*.jar /app/app.jar
 
 # Reasonable JVM limits for Cloud Run
-ENV JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=75.0 -XX:+ExitOnOutOfMemoryError"
+#ENV JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=75.0 -XX:+ExitOnOutOfMemoryError"
 
 # Cloud Run provides $PORT; your app already reads it
 EXPOSE 8080
-USER nonroot
+#USER nonroot
 
 # Use prod profile in Cloud Run
 ENTRYPOINT ["java","-jar","/app/app.jar","--spring.profiles.active=prod"]

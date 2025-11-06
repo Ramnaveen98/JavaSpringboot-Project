@@ -16,11 +16,42 @@
 	<version>0.0.1-SNAPSHOT</version>
 	<name>autobridge-api</name>
 	<description>Autobridge API</description>
+	<packaging>jar</packaging>
 
 	<properties>
 		<java.version>21</java.version>
 		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+
+		<!-- libs not managed by Spring Boot -->
+		<springdoc.version>2.6.0</springdoc.version>
+		<jjwt.version>0.11.5</jjwt.version>
+		<gcloud.sql.socket.version>1.8.1</gcloud.sql.socket.version>
+
+		<!-- plugins -->
+		<maven.compiler.plugin.version>3.13.0</maven.compiler.plugin.version>
+		<maven.surefire.plugin.version>3.2.5</maven.surefire.plugin.version>
+
+		<!-- Flyway plugin version -->
+		<flyway.plugin.version>10.10.0</flyway.plugin.version>
 	</properties>
+
+	<!-- Make sure Maven Central is used for both dependencies and plugins -->
+	<repositories>
+		<repository>
+			<id>maven-central</id>
+			<url>https://repo.maven.apache.org/maven2</url>
+			<releases><enabled>true</enabled></releases>
+			<snapshots><enabled>false</enabled></snapshots>
+		</repository>
+	</repositories>
+	<pluginRepositories>
+		<pluginRepository>
+			<id>maven-central</id>
+			<url>https://repo.maven.apache.org/maven2</url>
+			<releases><enabled>true</enabled></releases>
+			<snapshots><enabled>false</enabled></snapshots>
+		</pluginRepository>
+	</pluginRepositories>
 
 	<dependencies>
 		<!-- Web + JSON -->
@@ -35,7 +66,7 @@
 			<artifactId>spring-boot-starter-data-jpa</artifactId>
 		</dependency>
 
-		<!-- Bean validation -->
+		<!-- Bean Validation -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-validation</artifactId>
@@ -53,36 +84,36 @@
 			<artifactId>spring-boot-starter-mail</artifactId>
 		</dependency>
 
-		<!-- MySQL JDBC driver -->
+		<!-- MySQL JDBC driver (scope runtime; version managed by Spring Boot) -->
 		<dependency>
 			<groupId>com.mysql</groupId>
 			<artifactId>mysql-connector-j</artifactId>
 			<scope>runtime</scope>
 		</dependency>
 
-		<!-- Google Cloud SQL JDBC socket factory for MySQL (Connector/J 8)-->
+		<!-- Cloud SQL Socket Factory (MySQL / Connector-J 8) -->
 		<dependency>
 			<groupId>com.google.cloud.sql</groupId>
 			<artifactId>mysql-socket-factory-connector-j-8</artifactId>
-			<version>1.8.1</version>
+			<version>${gcloud.sql.socket.version}</version>
 		</dependency>
 
 		<!-- JWT -->
 		<dependency>
 			<groupId>io.jsonwebtoken</groupId>
 			<artifactId>jjwt-api</artifactId>
-			<version>0.11.5</version>
+			<version>${jjwt.version}</version>
 		</dependency>
 		<dependency>
 			<groupId>io.jsonwebtoken</groupId>
 			<artifactId>jjwt-impl</artifactId>
-			<version>0.11.5</version>
+			<version>${jjwt.version}</version>
 			<scope>runtime</scope>
 		</dependency>
 		<dependency>
 			<groupId>io.jsonwebtoken</groupId>
 			<artifactId>jjwt-jackson</artifactId>
-			<version>0.11.5</version>
+			<version>${jjwt.version}</version>
 			<scope>runtime</scope>
 		</dependency>
 
@@ -90,10 +121,10 @@
 		<dependency>
 			<groupId>org.springdoc</groupId>
 			<artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
-			<version>2.6.0</version>
+			<version>${springdoc.version}</version>
 		</dependency>
 
-		<!-- Flyway -->
+		<!-- Flyway (runtime in app) -->
 		<dependency>
 			<groupId>org.flywaydb</groupId>
 			<artifactId>flyway-core</artifactId>
@@ -103,10 +134,10 @@
 			<artifactId>flyway-mysql</artifactId>
 		</dependency>
 
-		<!-- Lombok (compile-time only) -->
+		<!-- Lombok -->
 		<dependency>
 			<groupId>org.projectlombok</groupId>
-			<artifactId>Lombok</artifactId>
+			<artifactId>lombok</artifactId>
 			<version>1.18.34</version>
 			<optional>true</optional>
 		</dependency>
@@ -125,11 +156,10 @@
 			<plugin>
 				<groupId>org.apache.maven.plugins</groupId>
 				<artifactId>maven-compiler-plugin</artifactId>
-				<version>3.13.0</version>
+				<version>${maven.compiler.plugin.version}</version>
 				<configuration>
-					<source>${java.version}</source>
-					<target>${java.version}</target>
 					<release>${java.version}</release>
+					<parameters>true</parameters>
 					<annotationProcessorPaths>
 						<path>
 							<groupId>org.projectlombok</groupId>
@@ -141,13 +171,73 @@
 			</plugin>
 
 			<!-- Tests -->
-			
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-surefire-plugin</artifactId>
+				<version>${maven.surefire.plugin.version}</version>
+				<configuration>
+					<!-- Keep tests from failing on missing mail props -->
+					<systemPropertyVariables>
+						<spring.mail.test-connection>false</spring.mail.test-connection>
+						<SPRING_MAIL_HOST>localhost</SPRING_MAIL_HOST>
+						<SPRING_MAIL_PORT>1025</SPRING_MAIL_PORT>
+						<SPRING_MAIL_USERNAME>dummy</SPRING_MAIL_USERNAME>
+						<SPRING_MAIL_PASSWORD>dummy</SPRING_MAIL_PASSWORD>
+					</systemPropertyVariables>
+				</configuration>
+			</plugin>
 
-			<!-- Spring Boot -->
+			<!-- Flyway Maven Plugin (for CLI clean/migrate) -->
+			<plugin>
+				<groupId>org.flywaydb</groupId>
+				<artifactId>flyway-maven-plugin</artifactId>
+				<version>${flyway.plugin.version}</version>
+				<!-- Force-resolve plugin transitive deps that failed on your machine -->
+				<dependencies>
+					<dependency>
+						<groupId>com.fasterxml.jackson.dataformat</groupId>
+						<artifactId>jackson-dataformat-toml</artifactId>
+						<version>2.15.2</version>
+					</dependency>
+					<dependency>
+						<groupId>org.apache.commons</groupId>
+						<artifactId>commons-text</artifactId>
+						<version>1.10.0</version>
+					</dependency>
+				</dependencies>
+				<!-- Optional: prewire defaults so you can run `mvn -Pflyway flyway:migrate` without -D... each time -->
+				<configuration>
+					<cleanDisabled>false</cleanDisabled>
+					<!-- You can override these at runtime with -Dflyway.url=... etc -->
+					<url>${flyway.url}</url>
+					<user>${flyway.user}</user>
+					<password>${flyway.password}</password>
+					<!-- Typical MySQL options -->
+					<connectRetries>3</connectRetries>
+					<placeholders>
+						<timezone>UTC</timezone>
+					</placeholders>
+				</configuration>
+			</plugin>
+
+			<!-- Spring Boot repackage -->
 			<plugin>
 				<groupId>org.springframework.boot</groupId>
 				<artifactId>spring-boot-maven-plugin</artifactId>
 			</plugin>
 		</plugins>
 	</build>
+
+	<!-- Optional profile: set Flyway connection once and reuse -->
+	<profiles>
+		<profile>
+			<id>flyway</id>
+			<properties>
+				<!-- override these locally or via CI secrets -->
+				<flyway.url>jdbc:mysql://127.0.0.1:3306/autobridge?useSSL=false&amp;allowPublicKeyRetrieval=true&amp;serverTimezone=UTC</flyway.url>
+				<flyway.user>autobridge</flyway.user>
+				<flyway.password>autobridge</flyway.password>
+			</properties>
+		</profile>
+	</profiles>
 </project>
