@@ -1,5 +1,6 @@
 package com.autobridge_api.security;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -18,6 +19,8 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 @Configuration
@@ -29,6 +32,23 @@ public class SecurityConfig {
     public SecurityConfig(JwtAuthFilter jwtAuthFilter) {
         this.jwtAuthFilter = jwtAuthFilter;
     }
+
+    // ---- CORS inputs from properties / env ----
+    // Comma-separated exact origins (for dev or known prod domains)
+    // e.g. APP_CORS_ALLOWED_ORIGINS="https://frontend.example"
+    @Value("${app.cors.allowed-origins:http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174}")
+    private String allowedOriginsProp;
+
+    // Comma-separated wildcard patterns (works with credentials=false by default)
+    // Default includes Cloud Run URLs; you can add your custom domain later.
+    // e.g. APP_CORS_ALLOWED_ORIGIN_PATTERNS="https://*.a.run.app,https://app.autobridge.com"
+    @Value("${app.cors.allowed-origin-patterns:https://*.a.run.app}")
+    private String allowedOriginPatternsProp;
+
+    // Cookies/sessions not used for JWT; keep false for simpler CORS.
+    // If you truly need cookies across origins, set to true in env and restrict origins.
+    @Value("${app.cors.allow-credentials:false}")
+    private boolean allowCredentials;
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
@@ -169,39 +189,49 @@ public class SecurityConfig {
     }
 
     /**
-     * CORS config used by Spring Security (and MVC via CorsFilter in CorsConfig).
-     * - Allows exact local dev origins (5173, 5174, etc.)
-     * - Also allows any localhost/127.0.0.1 port via allowedOriginPatterns (dev convenience)
-     * - Credentials enabled; common headers; exposes Content-Disposition for CSV exports
+     * Central CORS configuration used by:
+     *  - Spring Security via http.cors()
+     *  - MVC via CorsFilter (CorsConfig registers it)
+     *
+     * Values come from:
+     *   app.cors.allowed-origins (exact)
+     *   app.cors.allowed-origin-patterns (wildcards, e.g., https://*.a.run.app)
+     *   app.cors.allow-credentials (default false)
      */
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration cfg = new CorsConfiguration();
 
-        // Exact origins for dev (credentials require exact match)
-        cfg.setAllowedOrigins(List.of(
-                "http://localhost:5173",
-                "http://127.0.0.1:5173",
-                "http://localhost:5174",
-                "http://127.0.0.1:5174",
-                "http://localhost:3000",
-                "http://localhost:4200"
-        ));
+        // Exact origins (comma-separated)
+        List<String> exactOrigins = splitCsv(allowedOriginsProp);
+        cfg.setAllowedOrigins(exactOrigins);
 
-        // Wildcard patterns (dev convenience). Remove/lock down in prod.
-        cfg.setAllowedOriginPatterns(List.of(
-                "http://localhost:*",
-                "http://127.0.0.1:*"
-        ));
+        // Patterns (comma-separated) – include localhost wildcards for dev convenience
+        List<String> patterns = new ArrayList<>(splitCsv(allowedOriginPatternsProp));
+        // Always allow localhost patterns for dev unless you strip them via env
+        if (!patterns.contains("http://localhost:*")) patterns.add("http://localhost:*");
+        if (!patterns.contains("http://127.0.0.1:*")) patterns.add("http://127.0.0.1:*");
+        cfg.setAllowedOriginPatterns(patterns);
 
         cfg.setAllowedMethods(List.of("GET","POST","PUT","PATCH","DELETE","OPTIONS"));
-        cfg.setAllowedHeaders(List.of("Authorization","Content-Type","Accept","Origin","X-Requested-With"));
-        cfg.setExposedHeaders(List.of("Authorization","Content-Disposition"));
-        cfg.setAllowCredentials(true);
+        cfg.setAllowedHeaders(List.of(
+                "Authorization","Content-Type","Accept","Origin","X-Requested-With",
+                "Cache-Control","Pragma"   // helpful for some browsers/proxies
+        ));
+        cfg.setExposedHeaders(List.of("Authorization","Content-Disposition","Location"));
+        cfg.setAllowCredentials(allowCredentials);
         cfg.setMaxAge(3600L);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", cfg);
         return source;
+    }
+
+    private static List<String> splitCsv(String raw) {
+        if (raw == null || raw.isBlank()) return List.of();
+        return Arrays.stream(raw.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isBlank())
+                .toList();
     }
 }

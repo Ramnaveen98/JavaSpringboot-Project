@@ -1,9 +1,11 @@
 -- Merge legacy `inventory_vehicle` -> `inventory_vehicles`,
 -- repoint FK from service_request, then drop legacy table.
+-- Script is idempotent across partial runs.
 
 START TRANSACTION;
 
--- 1) Ensure target table has legacy metadata columns (portable, no IF NOT EXISTS syntax needed)
+-- 1) Ensure target table has legacy metadata columns
+
 -- image_url
 SET @sql := (
   SELECT CASE WHEN COUNT(*)=0 THEN
@@ -44,7 +46,7 @@ SET @sql := (
 );
 PREPARE s4 FROM @sql; EXECUTE s4; DEALLOCATE PREPARE s4;
 
--- 2) Update existing rows from legacy by VIN (if legacy table exists)
+-- 2) Update rows in target from legacy by VIN (only if legacy exists)
 SET @sql := (
   SELECT CASE WHEN COUNT(*)>0 THEN
     'UPDATE `inventory_vehicles` v
@@ -62,7 +64,7 @@ SET @sql := (
 );
 PREPARE s5 FROM @sql; EXECUTE s5; DEALLOCATE PREPARE s5;
 
--- 3) Insert VINs present only in legacy (satisfy NOT NULL columns with safe defaults)
+-- 3) Insert VINs only in legacy
 SET @sql := (
   SELECT CASE WHEN COUNT(*)>0 THEN
     'INSERT INTO `inventory_vehicles`
@@ -80,9 +82,9 @@ SET @sql := (
 );
 PREPARE s6 FROM @sql; EXECUTE s6; DEALLOCATE PREPARE s6;
 
--- 4) Re-point foreign key on service_request from legacy -> new table
+-- 4) Re-point foreign key on service_request
 
--- 4a) Add a temporary column to hold the new IDs (if not already there)
+-- 4a) Temp column to hold new IDs
 SET @sql := (
   SELECT CASE WHEN COUNT(*)=0 THEN
     'ALTER TABLE `service_request` ADD COLUMN `inventory_vehicle_id_new` BIGINT NULL'
@@ -92,7 +94,7 @@ SET @sql := (
 );
 PREPARE s7 FROM @sql; EXECUTE s7; DEALLOCATE PREPARE s7;
 
--- 4b) Populate temp column by joining legacy->new via VIN
+-- 4b) Populate temp by joining legacy->new via VIN (only if legacy table exists)
 SET @sql := (
   SELECT CASE WHEN COUNT(*)>0 THEN
     'UPDATE `service_request` sr
@@ -106,39 +108,43 @@ SET @sql := (
 );
 PREPARE s8 FROM @sql; EXECUTE s8; DEALLOCATE PREPARE s8;
 
--- 4c) Drop FK that references legacy table (name discovered dynamically)
-SET @fk := (
-  SELECT rc.CONSTRAINT_NAME
-  FROM information_schema.REFERENTIAL_CONSTRAINTS rc
-  WHERE rc.CONSTRAINT_SCHEMA = DATABASE()
-    AND rc.TABLE_NAME = 'service_request'
-    AND rc.REFERENCED_TABLE_NAME = 'inventory_vehicle'
-  LIMIT 1
-);
-SET @sql := IF(@fk IS NOT NULL,
-  CONCAT('ALTER TABLE `service_request` DROP FOREIGN KEY `', @fk, '`'),
-  'SELECT 1'
-);
-PREPARE s9 FROM @sql; EXECUTE s9; DEALLOCATE PREPARE s9;
+-- 4c) Drop ANY FK on service_request.inventory_vehicle_id (legacy or new)
+DROP PROCEDURE IF EXISTS drop_all_sr_fk_on_inv_id;
+DELIMITER $$
+CREATE PROCEDURE drop_all_sr_fk_on_inv_id()
+BEGIN
+  DECLARE done INT DEFAULT 0;
+  DECLARE fkname VARCHAR(128);
 
--- 4d) Drop old FK index if it exists (optional; ignore if absent)
-SET @idx := (
-  SELECT INDEX_NAME
-  FROM information_schema.statistics
-  WHERE table_schema=DATABASE()
-    AND table_name='service_request'
-    AND column_name='inventory_vehicle_id'
-    AND INDEX_NAME <> 'PRIMARY'
-  LIMIT 1
-);
-SET @sql := IF(@idx IS NOT NULL,
-  CONCAT('ALTER TABLE `service_request` DROP INDEX `', @idx, '`'),
-  'SELECT 1'
-);
-PREPARE s10 FROM @sql; EXECUTE s10; DEALLOCATE PREPARE s10;
+  DECLARE cur CURSOR FOR
+    SELECT CONSTRAINT_NAME
+    FROM information_schema.KEY_COLUMN_USAGE
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'service_request'
+      AND COLUMN_NAME = 'inventory_vehicle_id'
+      AND REFERENCED_TABLE_NAME IS NOT NULL;
 
--- 4e) Replace old column with the new IDs
--- Drop old column if present
+  DECLARE CONTINUE HANDLER FOR NOT FOUND SET done = 1;
+
+  OPEN cur;
+  read_loop: LOOP
+    FETCH cur INTO fkname;
+    IF done = 1 THEN LEAVE read_loop; END IF;
+
+    SET @sql := CONCAT('ALTER TABLE `service_request` DROP FOREIGN KEY `', fkname, '`');
+    PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
+  END LOOP;
+  CLOSE cur;
+END$$
+DELIMITER ;
+
+CALL drop_all_sr_fk_on_inv_id();
+DROP PROCEDURE IF EXISTS drop_all_sr_fk_on_inv_id;
+
+-- 4d) (intentionally no index drop; keeping existing index is fine)
+
+-- 4e) Swap columns safely and idempotently
+-- If old column exists, drop it (FKs already removed)
 SET @has_old := (
   SELECT COUNT(*) FROM information_schema.columns
   WHERE table_schema=DATABASE() AND table_name='service_request' AND column_name='inventory_vehicle_id'
@@ -149,7 +155,7 @@ SET @sql := IF(@has_old>0,
 );
 PREPARE s11 FROM @sql; EXECUTE s11; DEALLOCATE PREPARE s11;
 
--- Rename temp -> inventory_vehicle_id
+-- Rename temp -> inventory_vehicle_id if temp exists
 SET @has_new := (
   SELECT COUNT(*) FROM information_schema.columns
   WHERE table_schema=DATABASE() AND table_name='service_request' AND column_name='inventory_vehicle_id_new'
@@ -160,10 +166,22 @@ SET @sql := IF(@has_new>0,
 );
 PREPARE s12 FROM @sql; EXECUTE s12; DEALLOCATE PREPARE s12;
 
--- 4f) Recreate index and FK to the new table
-SET @sql := 'ALTER TABLE `service_request` ADD INDEX `idx_sr_inventory_vehicle_id` (`inventory_vehicle_id`)';
+-- 4f) Ensure index exists
+SET @has_idx := (
+  SELECT 1
+  FROM information_schema.statistics
+  WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'service_request'
+    AND INDEX_NAME = 'idx_sr_inventory_vehicle_id'
+  LIMIT 1
+);
+SET @sql := IF(@has_idx IS NULL,
+  'ALTER TABLE `service_request` ADD INDEX `idx_sr_inventory_vehicle_id` (`inventory_vehicle_id`)',
+  'SELECT 1'
+);
 PREPARE s13 FROM @sql; EXECUTE s13; DEALLOCATE PREPARE s13;
 
+-- 4g) (Re)create FK to inventory_vehicles if missing
 SET @fk2 := (
   SELECT rc.CONSTRAINT_NAME
   FROM information_schema.REFERENTIAL_CONSTRAINTS rc
@@ -182,12 +200,8 @@ SET @sql := IF(@fk2 IS NULL,
 );
 PREPARE s14 FROM @sql; EXECUTE s14; DEALLOCATE PREPARE s14;
 
--- 5) Drop the legacy table (now safe)
-SET @sql := (
-  SELECT CASE WHEN COUNT(*)>0 THEN 'DROP TABLE `inventory_vehicle`' ELSE 'SELECT 1' END
-  FROM information_schema.tables
-  WHERE table_schema = DATABASE() AND table_name = 'inventory_vehicle'
-);
+-- 5) Drop legacy table at the end
+SET @sql := 'DROP TABLE IF EXISTS `inventory_vehicle`';
 PREPARE s15 FROM @sql; EXECUTE s15; DEALLOCATE PREPARE s15;
 
 COMMIT;
