@@ -1,31 +1,40 @@
+options:
+  logging: CLOUD_LOGGING_ONLY
+
 substitutions:
   _REGION: us-central1
   _REPO: autobridge
   _SERVICE: autobridge-api
-  _UPLOAD_BUCKET: autobridge-prod-uploads
-
-steps:
-  - name: gcr.io/cloud-builders/docker
-    args: ['build','-t','${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:${SHORT_SHA}','.']
-
-  - name: gcr.io/cloud-builders/docker
-    args: ['push','${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:${SHORT_SHA}']
-
-  - name: gcr.io/google.com/cloudsdktool/cloud-sdk
-    entrypoint: bash
-    args:
-      - -lc
-      - |
-        gcloud run deploy ${_SERVICE} \
-          --image='${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:${SHORT_SHA}' \
-          --region='${_REGION}' \
-          --allow-unauthenticated \
-          --min-instances=1 --max-instances=50 \
-          --add-cloudsql-instances="$PROJECT_ID:us-central1:autobridge-mysql" \
-          --set-secrets=SPRING_DATASOURCE_USERNAME=autobridge-db-user:latest,SPRING_DATASOURCE_PASSWORD=autobridge-db-pass:latest,JWT_SECRET=jwt-secret:latest,SPRING_MAIL_PASSWORD=smtp-pass:latest \
-          --set-env-vars='SPRING_DATASOURCE_URL=jdbc:mysql://127.0.0.1:3306/autobridge,SPRING_MAIL_HOST=smtp.sendgrid.net,SPRING_MAIL_PORT=587,SPRING_MAIL_USERNAME=apikey,SPRING_PROFILES_ACTIVE=prod,AUTOBRIDGE_UPLOAD_DIR=/mnt/gcs/uploads,SPRING_WEB_RESOURCES_STATIC_LOCATIONS=file:/mnt/gcs/uploads/' \
-          --add-volume="name=uploads-vol,type=cloud-storage,bucket=${_UPLOAD_BUCKET}" \
-          --mount="/mnt/gcs/uploads=uploads-vol"
+  _CLOUDSQL_INSTANCE: autobridge-backend-api:us-central1:autobridge-mysql  # or your exact connection name
+  _SERVICE_ACCOUNT: autobridge-api-sa@autobridge-backend-api.iam.gserviceaccount.com
+  _DB_USER: autobridge
+  _DB_PASSWORD_SECRET: SPRING_DATASOURCE_PASSWORD
+  _JWT_SECRET: APP_JWT_SECRET
 
 images:
   - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:${SHORT_SHA}'
+
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build','-t','${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:${SHORT_SHA}','.']
+
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push','${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:${SHORT_SHA}']
+
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - '${_SERVICE}'
+      - '--image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:${SHORT_SHA}'
+      - '--region=${_REGION}'
+      - '--allow-unauthenticated'
+      - '--service-account=${_SERVICE_ACCOUNT}'
+      - '--add-cloudsql-instances=${_CLOUDSQL_INSTANCE}'
+      - '--set-env-vars=SPRING_PROFILES_ACTIVE=prod,CLOUDSQL_INSTANCE=${_CLOUDSQL_INSTANCE},SPRING_DATASOURCE_USERNAME=${_DB_USER}'
+      - '--set-secrets=SPRING_DATASOURCE_PASSWORD=${_DB_PASSWORD_SECRET}:latest,APP_JWT_SECRET=${_JWT_SECRET}:latest'
+      - '--min-instances=0'
+      - '--max-instances=20'
+      - '--memory=1Gi'
+      - '--cpu=1'
