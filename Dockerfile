@@ -26,3 +26,5 @@ EXPOSE 8080
 
 # Use prod profile in Cloud Run
 ENTRYPOINT ["java","-jar","/app/app.jar","--spring.profiles.active=prod"]
+
+#Work
