@@ -12,13 +12,15 @@ import java.util.concurrent.TimeUnit;
 @Configuration
 public class StaticResourceConfig implements WebMvcConfigurer {
 
-    @Value("${autobridge.upload-dir:uploads}")
+    // Prod default = Cloud Run GCS FUSE mount; dev can override with "uploads"
+    @Value("${autobridge.upload-dir:/mnt/gcs/uploads}")
     private String uploadDir;
 
     @Override
     public void addResourceHandlers(ResourceHandlerRegistry registry) {
-        // Map /uploads/** -> file system folder {uploadDir}/
+        // Map /uploads/** → <uploadDir>/
         String root = Paths.get(uploadDir).toAbsolutePath().normalize().toUri().toString();
+        if (!root.endsWith("/")) root = root + "/";
         registry.addResourceHandler("/uploads/**")
                 .addResourceLocations(root)
                 .setCacheControl(CacheControl.maxAge(30, TimeUnit.DAYS).cachePublic());

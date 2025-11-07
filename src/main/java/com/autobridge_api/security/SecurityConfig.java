@@ -33,66 +33,53 @@ public class SecurityConfig {
         this.jwtAuthFilter = jwtAuthFilter;
     }
 
-    // ---- CORS inputs from properties / env ----
-    // Comma-separated exact origins (for dev or known prod domains)
-    // e.g. APP_CORS_ALLOWED_ORIGINS="https://frontend.example"
+    // ==== CORS inputs (wired from application*.properties or Cloud Run env) ====
+    // Exact origins (comma-separated). Example:
+    // APP_CORS_ALLOWED_ORIGINS="https://autobridge-frontend-XXXX.us-central1.run.app"
     @Value("${app.cors.allowed-origins:http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174}")
     private String allowedOriginsProp;
 
-    // Comma-separated wildcard patterns (works with credentials=false by default)
-    // Default includes Cloud Run URLs; you can add your custom domain later.
-    // e.g. APP_CORS_ALLOWED_ORIGIN_PATTERNS="https://*.a.run.app,https://app.autobridge.com"
+    // Wildcard patterns (comma-separated). Defaults include Cloud Run *.a.run.app
+    // Example: APP_CORS_ALLOWED_ORIGIN_PATTERNS="https://*.a.run.app"
     @Value("${app.cors.allowed-origin-patterns:https://*.a.run.app}")
     private String allowedOriginPatternsProp;
 
-    // Cookies/sessions not used for JWT; keep false for simpler CORS.
-    // If you truly need cookies across origins, set to true in env and restrict origins.
+    // Cookies across origins? Keep false unless you truly need them.
     @Value("${app.cors.allow-credentials:false}")
     private boolean allowCredentials;
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
-                // --- Stateless JWT API & CORS/CSRF ---
+                // ---- Stateless JWT API ----
                 .csrf(csrf -> csrf.disable())
-                .cors(cors -> cors.configurationSource(corsConfigurationSource()))
-                .sessionManagement(sess -> sess.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .cors(c -> c.configurationSource(corsConfigurationSource()))
+                .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
 
-                // --- 401 vs 403 handling ---
+                // ---- 401/403 behavior ----
                 .exceptionHandling(ex -> ex
-                        .authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)) // 401
-                        .accessDeniedHandler((req, res, e) -> res.setStatus(HttpStatus.FORBIDDEN.value())) // 403
+                        .authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)) // 401 for unauthenticated
+                        .accessDeniedHandler((req, res, e) -> res.setStatus(HttpStatus.FORBIDDEN.value())) // 403 for forbidden
                 )
 
-                // --- Authorization: specific → general ---
+                // ---- Authorization rules (specific → general) ----
                 .authorizeHttpRequests(auth -> auth
                         // Preflight
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
 
                         // Swagger / API docs
-                        .requestMatchers(
-                                "/v3/api-docs/**",
-                                "/swagger-ui/**",
-                                "/swagger-ui.html"
-                        ).permitAll()
+                        .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
 
-                        // Root/health/error/ping
-                        .requestMatchers(
-                                "/",
-                                "/error",
-                                "/api/v1/ping",
-                                "/api/v1/health/**"
-                        ).permitAll()
+                        // Health/ping/root (your custom health; Actuator remains protected)
+                        .requestMatchers("/", "/error", "/api/v1/ping", "/api/v1/health/**").permitAll()
 
-                        // Auth (signup/login + password reset flow)
-                        .requestMatchers(
-                                "/api/v1/auth/**",
+                        // Auth (login/signup + reset)
+                        .requestMatchers("/api/v1/auth/**",
                                 "/api/v1/auth/forgot-password",
                                 "/api/v1/auth/verify-otp",
-                                "/api/v1/auth/reset-password"
-                        ).permitAll()
+                                "/api/v1/auth/reset-password").permitAll()
 
-                        // Static uploads (images saved by admin)
+                        // Static uploads (vehicle images served by Spring from /uploads/**)
                         .requestMatchers(HttpMethod.GET, "/uploads/**").permitAll()
 
                         // Public services
@@ -101,7 +88,7 @@ public class SecurityConfig {
                                 "/api/v1/services/public/**"
                         ).permitAll()
 
-                        // Public vehicles — support current path and the future alias
+                        // Public vehicles (current + legacy paths)
                         .requestMatchers(HttpMethod.GET,
                                 "/api/v1/vehicles/public",
                                 "/api/v1/vehicles/public/**",
@@ -109,10 +96,10 @@ public class SecurityConfig {
                                 "/api/v1/public/vehicles/**"
                         ).permitAll()
 
-                        // Other public helpers (e.g., image proxy)
+                        // Other public helpers
                         .requestMatchers("/api/v1/public/**").permitAll()
 
-                        // ---------- Agent requests (dashboard + actions) ----------
+                        // ---------------- Agent ----------------
                         .requestMatchers(HttpMethod.GET,
                                 "/api/v1/agent/requests",
                                 "/api/v1/agent/requests/mine"
@@ -120,7 +107,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/v1/agent/requests/*/start").hasRole("AGENT")
                         .requestMatchers(HttpMethod.POST, "/api/v1/agent/requests/*/complete").hasRole("AGENT")
 
-                        // ---------- Requests lifecycle (user) ----------
+                        // -------- Requests lifecycle (user) --------
                         .requestMatchers(HttpMethod.POST, "/api/v1/requests").hasAnyRole("USER","ADMIN")
                         .requestMatchers(HttpMethod.GET,  "/api/v1/requests/mine").hasAnyRole("USER","ADMIN","AGENT")
                         .requestMatchers(HttpMethod.GET,  "/api/v1/requests/*").authenticated()
@@ -129,9 +116,8 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST,  "/api/v1/requests/*/feedback").hasRole("USER")
                         .requestMatchers(HttpMethod.GET,   "/api/v1/feedback").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.PATCH, "/api/v1/feedback/*/acknowledge").hasRole("ADMIN")
-                        .requestMatchers(HttpMethod.GET,   "/api/v1/agent/feedback").hasRole("AGENT")
 
-                        // --- Admin analytics/search/export (OLD + NEW paths) ---
+                        // ----- Admin analytics/search/export (old + new) -----
                         .requestMatchers(HttpMethod.GET,
                                 "/api/v1/requests/admin",
                                 "/api/v1/requests/admin/export"
@@ -141,7 +127,7 @@ public class SecurityConfig {
                                 "/api/v1/admin/requests/export"
                         ).hasRole("ADMIN")
 
-                        // --- Staff actions on requests (assign/start/complete) (OLD + NEW paths) ---
+                        // ----- Staff actions on requests (assign/start/complete) (old + new) -----
                         .requestMatchers(HttpMethod.POST,
                                 "/api/v1/requests/*/assign",
                                 "/api/v1/requests/*/start",
@@ -153,30 +139,30 @@ public class SecurityConfig {
                                 "/api/v1/admin/requests/*/complete"
                         ).hasAnyRole("ADMIN","AGENT")
 
-                        // Cancel allowed for admin/agent/user
+                        // Cancel (admin/agent/user) (old + new)
                         .requestMatchers(HttpMethod.POST,
                                 "/api/v1/requests/*/cancel",
                                 "/api/v1/admin/requests/*/cancel"
                         ).hasAnyRole("ADMIN","AGENT","USER")
 
-                        // Admin directory (agents + users CRUD)
+                        // Admin directory & vehicles CRUD
                         .requestMatchers("/api/v1/admin/directory/**").hasRole("ADMIN")
-
-                        // Admin VEHICLES CRUD
                         .requestMatchers("/api/v1/admin/vehicles/**").hasRole("ADMIN")
 
-                        // Legacy agents management (if still present)
+                        // Legacy agents mgmt (if still present)
                         .requestMatchers("/api/v1/agents/**").hasRole("ADMIN")
 
                         // Catch-all
                         .anyRequest().authenticated()
                 )
 
-                // --- JWT filter ---
+                // ---- JWT filter ----
                 .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
     }
+
+    // ==== Beans: encoder, auth manager, CORS source ====
 
     @Bean
     public PasswordEncoder passwordEncoder() {
@@ -189,26 +175,24 @@ public class SecurityConfig {
     }
 
     /**
-     * Central CORS configuration used by:
-     *  - Spring Security via http.cors()
-     *  - MVC via CorsFilter (CorsConfig registers it)
-     *
+     * Central CORS configuration (used by Spring Security via http.cors()).
      * Values come from:
-     *   app.cors.allowed-origins (exact)
-     *   app.cors.allowed-origin-patterns (wildcards, e.g., https://*.a.run.app)
-     *   app.cors.allow-credentials (default false)
+     *   - app.cors.allowed-origins           (exact origins)
+     *   - app.cors.allowed-origin-patterns   (wildcards like https://*.a.run.app)
+     *   - app.cors.allow-credentials         (default false)
      */
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration cfg = new CorsConfiguration();
 
-        // Exact origins (comma-separated)
+        // Exact origins
         List<String> exactOrigins = splitCsv(allowedOriginsProp);
-        cfg.setAllowedOrigins(exactOrigins);
+        if (!exactOrigins.isEmpty()) {
+            cfg.setAllowedOrigins(exactOrigins);
+        }
 
-        // Patterns (comma-separated) – include localhost wildcards for dev convenience
+        // Patterns (add localhost wildcards for dev convenience)
         List<String> patterns = new ArrayList<>(splitCsv(allowedOriginPatternsProp));
-        // Always allow localhost patterns for dev unless you strip them via env
         if (!patterns.contains("http://localhost:*")) patterns.add("http://localhost:*");
         if (!patterns.contains("http://127.0.0.1:*")) patterns.add("http://127.0.0.1:*");
         cfg.setAllowedOriginPatterns(patterns);
@@ -216,7 +200,7 @@ public class SecurityConfig {
         cfg.setAllowedMethods(List.of("GET","POST","PUT","PATCH","DELETE","OPTIONS"));
         cfg.setAllowedHeaders(List.of(
                 "Authorization","Content-Type","Accept","Origin","X-Requested-With",
-                "Cache-Control","Pragma"   // helpful for some browsers/proxies
+                "Cache-Control","Pragma"
         ));
         cfg.setExposedHeaders(List.of("Authorization","Content-Disposition","Location"));
         cfg.setAllowCredentials(allowCredentials);
