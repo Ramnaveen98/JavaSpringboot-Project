@@ -35,7 +35,7 @@
 		<flyway.plugin.version>10.10.0</flyway.plugin.version>
 	</properties>
 
-	<!-- Make sure Maven Central is used for both dependencies and plugins -->
+	<!-- Use Maven Central -->
 	<repositories>
 		<repository>
 			<id>maven-central</id>
@@ -52,6 +52,19 @@
 			<snapshots><enabled>false</enabled></snapshots>
 		</pluginRepository>
 	</pluginRepositories>
+
+	<!-- Manage Google Cloud libs via BOM -->
+	<dependencyManagement>
+		<dependencies>
+			<dependency>
+				<groupId>com.google.cloud</groupId>
+				<artifactId>libraries-bom</artifactId>
+				<version>26.47.0</version>
+				<type>pom</type>
+				<scope>import</scope>
+			</dependency>
+		</dependencies>
+	</dependencyManagement>
 
 	<dependencies>
 		<!-- Web + JSON -->
@@ -84,7 +97,7 @@
 			<artifactId>spring-boot-starter-mail</artifactId>
 		</dependency>
 
-		<!-- MySQL JDBC driver (scope runtime; version managed by Spring Boot) -->
+		<!-- MySQL JDBC driver -->
 		<dependency>
 			<groupId>com.mysql</groupId>
 			<artifactId>mysql-connector-j</artifactId>
@@ -134,6 +147,12 @@
 			<artifactId>flyway-mysql</artifactId>
 		</dependency>
 
+		<!-- Google Cloud Storage (version comes from the BOM above) -->
+		<dependency>
+			<groupId>com.google.cloud</groupId>
+			<artifactId>google-cloud-storage</artifactId>
+		</dependency>
+
 		<!-- Lombok -->
 		<dependency>
 			<groupId>org.projectlombok</groupId>
@@ -176,7 +195,6 @@
 				<artifactId>maven-surefire-plugin</artifactId>
 				<version>${maven.surefire.plugin.version}</version>
 				<configuration>
-					<!-- Keep tests from failing on missing mail props -->
 					<systemPropertyVariables>
 						<spring.mail.test-connection>false</spring.mail.test-connection>
 						<SPRING_MAIL_HOST>localhost</SPRING_MAIL_HOST>
@@ -187,12 +205,11 @@
 				</configuration>
 			</plugin>
 
-			<!-- Flyway Maven Plugin (for CLI clean/migrate) -->
+			<!-- Flyway Maven Plugin -->
 			<plugin>
 				<groupId>org.flywaydb</groupId>
 				<artifactId>flyway-maven-plugin</artifactId>
 				<version>${flyway.plugin.version}</version>
-				<!-- Force-resolve plugin transitive deps that failed on your machine -->
 				<dependencies>
 					<dependency>
 						<groupId>com.fasterxml.jackson.dataformat</groupId>
@@ -205,14 +222,11 @@
 						<version>1.10.0</version>
 					</dependency>
 				</dependencies>
-				<!-- Optional: prewire defaults so you can run `mvn -Pflyway flyway:migrate` without -D... each time -->
 				<configuration>
 					<cleanDisabled>false</cleanDisabled>
-					<!-- You can override these at runtime with -Dflyway.url=... etc -->
 					<url>${flyway.url}</url>
 					<user>${flyway.user}</user>
 					<password>${flyway.password}</password>
-					<!-- Typical MySQL options -->
 					<connectRetries>3</connectRetries>
 					<placeholders>
 						<timezone>UTC</timezone>
@@ -228,12 +242,10 @@
 		</plugins>
 	</build>
 
-	<!-- Optional profile: set Flyway connection once and reuse -->
 	<profiles>
 		<profile>
 			<id>flyway</id>
 			<properties>
-				<!-- override these locally or via CI secrets -->
 				<flyway.url>jdbc:mysql://127.0.0.1:3306/autobridge?useSSL=false&amp;allowPublicKeyRetrieval=true&amp;serverTimezone=UTC</flyway.url>
 				<flyway.user>autobridge</flyway.user>
 				<flyway.password>autobridge</flyway.password>
